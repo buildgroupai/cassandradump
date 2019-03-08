@@ -4,7 +4,8 @@ except ImportError:
     from distutils.core import setup
 
 requires = [
-    'cassandra-driver==2.7.2',
+    #'cassandra-driver==2.7.2',
+    'dse-driver>=2.6',
 ]
 
 with open('README.rst') as f:

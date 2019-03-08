@@ -11,13 +11,13 @@ except ImportError:
     sys.exit('Please install six compatibility layer, via: \"pip install six\"')
 
 try:
-    import cassandra
-    import cassandra.concurrent
+    import dse
+    import dse.concurrent
 except ImportError:
     sys.exit('Python Cassandra driver not installed. You might try \"pip install cassandra-driver\".')
 
-from cassandra.auth import PlainTextAuthProvider #For protocol_version 2
-from cassandra.cluster import Cluster
+from dse.auth import PlainTextAuthProvider #For protocol_version 2
+from dse.cluster import Cluster
 
 TIMEOUT = 120.0
 FETCH_SIZE = 100
@@ -25,6 +25,9 @@ DOT_EVERY = 1000
 CONCURRENT_BATCH_SIZE = 1000
 
 args = None
+
+import pydevd
+pydevd.settrace('localhost', port=8788, stdoutToServer=True, stderrToServer=True)
 
 def cql_type(val):
     try:
@@ -113,8 +116,8 @@ def table_to_cqlfile(session, keyspace, tablename, flt, tableval, filep, limit=0
                 return 'INSERT INTO "%(keyspace)s"."%(tablename)s" (%(columns)s) VALUES (%(values)s)' % dict(
                     keyspace=keyspace_utf8,
                     tablename=tablename_utf8,
-                    columns=', '.join('"{}"'.format(c) for c in columns if values[c] != "NULL"),
-                    values=', '.join(values[c] for c in columns if values[c] != "NULL"),
+                    columns=', '.join('"{}"'.format(c) for c in columns if c in values and values[c] != "NULL"),
+                    values=', '.join(values[c] for c in columns if c in values and values[c] != "NULL"),
                 )
         return row_encoder
 
@@ -122,7 +125,7 @@ def table_to_cqlfile(session, keyspace, tablename, flt, tableval, filep, limit=0
     row_encoder = make_row_encoder()
 
     for row in rows:
-        values = dict((to_utf8(k), to_utf8(value_encoders[k](v))) for k, v in six.iteritems(row))
+        values = dict((to_utf8(k), to_utf8(value_encoders[k](v))) for k, v in six.iteritems(vars(row)) if k in value_encoders)
         filep.write("%s;\n" % row_encoder(values))
 
         cnt += 1
@@ -159,11 +162,11 @@ def import_data(session):
                 concurrent_statements.append((statement, None))
 
                 if len(concurrent_statements) >= CONCURRENT_BATCH_SIZE:
-                    cassandra.concurrent.execute_concurrent(session, concurrent_statements)
+                    dse.concurrent.execute_concurrent(session, concurrent_statements)
                     concurrent_statements = []
             else:
                 if concurrent_statements:
-                    cassandra.concurrent.execute_concurrent(session, concurrent_statements)
+                    dse.concurrent.execute_concurrent(session, concurrent_statements)
                     concurrent_statements = []
 
                 session.execute(statement)
@@ -175,7 +178,7 @@ def import_data(session):
                 log_quiet('.')
 
     if concurrent_statements:
-        cassandra.concurrent.execute_concurrent(session, concurrent_statements)
+        dse.concurrent.execute_concurrent(session, concurrent_statements)
 
     if statement != '':
         session.execute(statement)
@@ -348,15 +351,15 @@ def setup_cluster():
             elif args.protocol_version > 1:
                 auth = PlainTextAuthProvider(username=args.username, password=args.password)
 
-        cluster = Cluster(control_connection_timeout=connect_timeout, connect_timeout=connect_timeout, contact_points=nodes, port=port, protocol_version=args.protocol_version, auth_provider=auth, load_balancing_policy=cassandra.policies.WhiteListRoundRobinPolicy(nodes), ssl_options=ssl_opts)
+        cluster = Cluster(control_connection_timeout=connect_timeout, connect_timeout=connect_timeout, contact_points=nodes, port=port, protocol_version=args.protocol_version, auth_provider=auth, ssl_options=ssl_opts)
     else:
-        cluster = Cluster(control_connection_timeout=connect_timeout, connect_timeout=connect_timeout, contact_points=nodes, port=port, load_balancing_policy=cassandra.policies.WhiteListRoundRobinPolicy(nodes), ssl_options=ssl_opts)
+        cluster = Cluster(control_connection_timeout=connect_timeout, connect_timeout=connect_timeout, contact_points=nodes, port=port, ssl_options=ssl_opts)
 
     session = cluster.connect()
 
     session.default_timeout = TIMEOUT
     session.default_fetch_size = FETCH_SIZE
-    session.row_factory = cassandra.query.ordered_dict_factory
+    session.row_factory = dse.query.ordered_dict_factory
     return session
 
 
